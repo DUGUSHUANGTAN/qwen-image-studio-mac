@@ -34,11 +34,34 @@ ComfyUI 需要能访问 Qwen-Image-2.1 的主模型、文本编码器与 VAE；�
 - Mac 自动启动 ComfyUI 时追加 `--cpu-vae`，**只有 VAE 跑 CPU，扩散模型仍用 GPU**。
 - 复用已有服务时会检查其真实设备与启动参数；若目标在 MPS 上且未带 `--cpu-vae`，应用拒绝提交编辑任务，并在报错里告诉你如何修正。
 
+这也是为什么应用会检查**你手动启动的** ComfyUI：如果绕过了应用直接开 ComfyUI，VAE 又跑在 GPU 上，画质就会坏掉，而没有任何报错。
+
 **为什么默认 40 步。** 官方模型卡用 40 步，ComfyUI 模板用 25 步。25–39 步适合快速预览；应用会阻止低于 25 步的编辑，防止误套其他蒸馏模型的少步配方。
 
 **为什么编辑画布限制在约 1 MP。** 官方编辑配方把参考图缩放到约 1 MP，画布也应保持在同一量级。文生图的 4 MP 画布是参考图条件分辨率的四倍，这正是「中心清晰、四周发糊」的成因。编辑模式下选比例时会按约 1 MP 像素预算换算，而不是套用文生图的 4 MP 尺寸表。自定义宽高时软件阻止超过 150 万像素——**这是本软件的质量保护策略，不是 Qwen 模型的能力上限**，建议先在 1 MP 完成编辑再放大。
 
 > 以上阈值都是 Studio 的策略，不是模型的硬性限制。相关代码集中在 [`validate_edit_settings`](app/web/server.py) 与 [`ComfyBackend._safe_for_edit`](app/web/server.py)，改前请读注释。完整排查过程和实测数据见 **[docs/QUALITY-NOTES.md](docs/QUALITY-NOTES.md)**。
+
+### 官方依据
+
+- [Qwen-Image-2.1 模型卡（编辑示例为 40 步）](https://huggingface.co/Qwen/Qwen-Image-2.1)
+- [ComfyUI 官方编辑模板](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json)
+- [ComfyUI Qwen 2.1 编码节点（参考图缩放与首图画布）](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_qwen.py)
+- [ComfyUI Qwen 2.1 模型实现（分段因果注意力）](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy/ldm/qwen_image21/model.py)
+
+### 诊断范围与免责
+
+MPS VAE 编码故障已在 ComfyUI 0.37.4 / PyTorch 2.13.0 / Apple M5 Pro 上复现。上游同类报告见 [ComfyUI #16433](https://github.com/Comfy-Org/ComfyUI/issues/16433)——这是用户复现报告，不是官方参数规范。
+
+**本软件无法保证每条提示词都能得到预期编辑结果。** 换人、改姿势、保留指定内容这类指令尤其需要人工验收成图。CFG 固定为 1，负向提示词不提供额外引导；采样器、调度器与 denoise 不随自定义参数改变。
+
+### 双图换人提示词示例
+
+换人容易失败，原因是没交代清楚每张图的职责。有效的写法是明确分工：
+
+> 以 `<image1>` 为编辑底图，保留它的画面布局、背景、人物姿势和服装。将其中人物的身份和面部特征替换为 `<image2>` 中的人物。`<image2>` 仅提供人物身份参考，不采用它的姿势、服装、背景和构图。输出编辑后的 `<image1>`。
+
+实测对照：同一参考图与种子，简短写「把第一张的人换成第二张的人」会复现第二张的场景；明确角色分工后，才能保留第一张布局并替换上方人像。即便如此，人物相似度仍需逐张检查。
 
 ## 开发
 

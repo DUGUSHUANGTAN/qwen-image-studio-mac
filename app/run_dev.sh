@@ -3,6 +3,7 @@
 #
 #   bash app/run_dev.sh            → http://127.0.0.1:8731 (dev port, leaves 8730 for the app)
 #   bash app/run_dev.sh stop
+#   PORT=9000 bash app/run_dev.sh  → serve on another port
 #
 # The web server needs only Python 3.12+ and Pillow; it makes a small venv at
 # app/.venv on first run. Renders go through the ComfyUI set under Paths.
