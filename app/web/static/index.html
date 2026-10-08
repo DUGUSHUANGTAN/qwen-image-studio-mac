@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>qwen image studio</title>
+<script>
+/* Set the theme and language before first paint: the saved choice, else the system's. */
+(function () {
+  var saved = null;
+  try { saved = localStorage.getItem("qwen-studio-theme"); } catch (e) {}
+  var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  var lang = null;
+  try { lang = localStorage.getItem("qwen-studio-lang"); } catch (e) {}
+  if (lang !== "zh" && lang !== "en") lang = (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+  document.documentElement.dataset.lang = lang;
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+})();
+</script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- The Bauhaus stage the glass floats on: crisp geometry, soft colour, paper grain -->
+<div id="backdrop" aria-hidden="true">
+  <div class="blob blob-a"></div>
+  <div class="blob blob-b"></div>
+  <div class="blob blob-c"></div>
+  <div class="shape shape-ring"></div>
+  <div class="shape shape-disc"></div>
+  <div class="shape shape-tri"></div>
+  <div class="shape shape-semi"></div>
+  <div class="shape shape-square"></div>
+  <div class="shape shape-lines"></div>
+  <div class="grain"></div>
+</div>
+
+<div id="app">
+  <header class="topbar glass">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 44 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" fill="var(--yellow)"/>
+        <rect x="19" y="1.5" width="13" height="13" rx="2" fill="var(--blue)"/>
+        <path d="M40 1.5 L43.5 14.5 L36.5 14.5 Z" fill="var(--red)"/>
+      </svg>
+      <span class="brand-text">qwen image <span>studio</span></span>
+    </div>
+    <div class="row">
+      <select id="sessionSelect" aria-label="Session"></select>
+      <button class="btn neo" type="button" id="sessionNew" data-i18n="newSession">+ New</button>
+      <button class="btn neo" type="button" id="sessionRename" data-i18n="rename">Rename</button>
+      <button class="btn neo danger-text" type="button" id="sessionDel" data-i18n="delete">Delete</button>
+    </div>
+    <div class="row push">
+      <button class="btn neo" type="button" id="galleryBtn" data-i18n="gallery">Gallery</button>
+      <button class="btn neo" type="button" id="pathsBtn" data-i18n="paths">⚙ Paths</button>
+      <button class="btn neo" type="button" id="resetBtn" data-i18n="resetPill" data-i18n-title="resetTitle2">↻ Reset</button>
+      <button class="btn neo" type="button" id="docsBtn" data-i18n="docs">Docs</button>
+      <button class="btn neo icon-only" type="button" id="langBtn" title="Switch language / 切换语言" aria-label="Switch language">中</button>
+      <button class="btn neo icon-only" type="button" id="themeBtn" data-i18n-title="themeTitle" title="Switch light / dark" aria-label="Switch theme">◐</button>
+    </div>
+    <div class="status glass-pill"><span class="dot" id="lamp"></span><span id="lampText">connecting…</span></div>
+  </header>
+
+  <div class="layout">
+    <!-- LEFT: parameters -->
+    <aside class="panel glass" aria-label="Parameters">
+      <section>
+        <div class="label" data-i18n="model">Model</div>
+        <div class="model">
+          <div class="glyph">2.1</div>
+          <b>Qwen-Image-2.1 <span class="bad" id="modelBad" hidden>not connected</span></b>
+          <code id="modelPath">—</code>
+        </div>
+      </section>
+
+      <section>
+        <div class="label"><span data-i18n="mode">Mode</span> <span class="right muted" data-i18n="modeHint">set by reference images</span></div>
+        <div class="mode" id="modeSeg"><button type="button" data-m="t2i" data-i18n="modeT2I">Text → image</button><button type="button" data-m="i2i" data-i18n="modeEdit">Edit</button></div>
+      </section>
+
+      <section>
+        <label class="label" for="prompt"><span data-i18n="prompt">Prompt</span> <span class="right muted" id="promptCount"></span></label>
+        <div class="mention-wrap">
+          <textarea id="prompt" data-i18n-placeholder="promptPlaceholder" placeholder="A neon shop sign that reads QWEN" aria-describedby="promptHint"></textarea>
+          <div class="mentions glass-strong" id="mentions" role="listbox" aria-label="Reference images" hidden></div>
+        </div>
+        <p class="hint" id="promptHint" data-i18n="promptHint">Type @ to name a reference image; it becomes &lt;image1&gt;, &lt;image2&gt;… in the order of the list.</p>
+      </section>
+
+      <section>
+        <div class="label"><span data-i18n="aspectRatio">Aspect ratio</span> <span class="right muted" id="ratioSrc"></span></div>
+        <div class="ratios" id="ratios"></div>
+        <div class="readout">
+          <span><b id="dims">—</b> px</span>
+          <span><b id="mp">—</b> MP</span>
+          <span>÷32 <b id="grid32">ok</b></span>
+        </div>
+      </section>
+
+      <section>
+        <div class="grid2">
+          <label for="width"><span class="label" data-i18n="width">Width</span><input type="number" id="width" step="32" min="256" max="4096" data-i18n-placeholder="auto" placeholder="auto"></label>
+          <label for="height"><span class="label" data-i18n="height">Height</span><input type="number" id="height" step="32" min="256" max="4096" data-i18n-placeholder="auto" placeholder="auto"></label>
+        </div>
+        <p class="hint" data-i18n="whHint">Multiples of 32. With a ratio chosen, editing one side re-derives the other from it; clearing either side returns both to the ratio's own size. On Auto both are free.</p>
+        <p class="hint warn" id="sizeWarn" hidden></p>
+      </section>
+
+      <section class="grid2">
+        <label for="steps"><span class="label" data-i18n="steps">Steps</span><input type="number" id="steps" value="40" min="1" max="200"></label>
+        <div>
+          <label class="label" for="seed" data-i18n="seed">Seed</label>
+          <div class="seedrow"><input type="number" id="seed" value="42" min="0"><button class="iconbtn neo" type="button" id="dice" data-i18n-title="randomSeed" title="Random seed" aria-label="Random seed">⚄</button></div>
+        </div>
+      </section>
+
+      <section>
+        <label class="toggle neo" for="transparent">
+          <input type="checkbox" id="transparent">
+          <b><span data-i18n="transparentBg">Transparent background</span> <span class="tag">RGBA</span></b>
+          <em data-i18n="transparentHint">Asks for an alpha channel; the take is always saved as PNG.</em>
+        </label>
+      </section>
+
+      <section>
+        <button class="primary" type="button" id="generate" data-i18n="generate">Generate</button>
+        <p class="errors" id="formError" hidden></p>
+        <div class="cmd" id="cmd" aria-label="ComfyUI workflow preview"></div>
+      </section>
+    </aside>
+
+    <!-- CENTRE: preview, enhanced prompt, takes -->
+    <main class="panel center glass" aria-label="Preview">
+      <section class="stage">
+        <div class="stagehead">
+          <span class="mono" id="stageTitle">No take yet</span>
+          <span class="chip" id="stageRatio" hidden></span>
+        </div>
+        <div class="frame" id="frame">
+          <img id="frameImg" alt="" hidden>
+          <span class="empty" id="frameEmpty" data-i18n="frameEmpty">Generate to see a take here</span>
+          <span class="badge" id="frameBadge" hidden></span>
+          <div class="live" id="frameLive" hidden></div>
+        </div>
+        <div class="pipeline" id="pipeline"></div>
+        <div class="progress-actions" id="progressActions" hidden>
+          <span class="muted mono" id="progressText"></span>
+          <button class="btn sm neo danger-text" type="button" id="cancel" data-i18n="cancel">Cancel</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="label"><span data-i18n="takes">Takes</span> <span class="muted" id="takeCount"></span></div>
+        <div class="takes" id="takes"></div>
+      </section>
+    </main>
+
+    <!-- RIGHT: references, queue, terminal -->
+    <aside class="panel side glass" aria-label="Inputs and activity">
+      <div class="side-scroll">
+        <section>
+          <div class="label"><span data-i18n="referenceImages">Reference images</span> <span class="muted" id="refCount"></span><span class="right"><button class="link" type="button" id="refFromGallery" data-i18n="fromGallery">from gallery</button></span></div>
+          <label class="drop" id="drop" role="button" tabindex="0" data-i18n="dropHint">Drop images here or click to add — up to 10. Adding one switches to Edit.</label>
+          <input type="file" id="fileInput" class="visually-hidden" accept="image/png,image/jpeg,image/webp" multiple>
+          <div class="refs" id="refs"></div>
+          <p class="hint" data-i18n="refsHint">Numbered in prompt order. Click one to add it to the prompt as @name, sent as &lt;imageN&gt;. With no ratio set, the size follows the first image.</p>
+        </section>
+
+        <section>
+          <div class="label" data-i18n="queue">Queue</div>
+          <div class="queue" id="queue"></div>
+        </section>
+      </div>
+
+      <section class="side-term">
+        <div class="label"><span data-i18n="terminal">Terminal</span>
+          <span class="tabs" role="tablist" id="termTabs">
+            <button type="button" role="tab" aria-selected="true" data-tab="output" data-i18n="output">Output</button>
+            <button type="button" role="tab" aria-selected="false" data-tab="render" data-i18n="renderLog">Render log</button>
+          </span>
+          <span class="right"><button class="link" type="button" id="termClear" data-i18n="clear">clear</button></span>
+        </div>
+        <pre class="term" id="term"></pre>
+        <div class="term render-log" id="renderLog" hidden></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<dialog id="pathsDialog" class="glass-strong">
+  <h3 data-i18n="pathsTitle">Paths</h3>
+  <div class="field"><label class="label" for="pComfy" data-i18n="pathsComfyUI">ComfyUI</label><input type="text" id="pComfy" autocomplete="off" placeholder="~/ComfyUI-Installs/ComfyUI  ·  http://127.0.0.1:8188"></div>
+  <p class="hint" data-i18n="comfyHint">An install directory (the studio starts ComfyUI headless itself) or an http URL (reused). Renders go through its own Qwen-Image-2.1 graphs — nothing is downloaded here.</p>
+  <p class="errors" id="pathsError" hidden></p>
+  <div class="acts"><button class="btn neo" type="button" id="pathsCancel" data-i18n="cancel2">Cancel</button><button class="primary sm" type="button" id="pathsSave" data-i18n="usePaths">Use paths</button></div>
+</dialog>
+
+<dialog id="askDialog" class="glass-strong">
+  <h3 id="askTitle"></h3>
+  <p class="hint" id="askMessage"></p>
+  <input type="text" id="askInput" autocomplete="off">
+  <p class="errors" id="askError" hidden></p>
+  <div class="acts"><button class="btn neo" type="button" id="askCancel" data-i18n="cancel">Cancel</button><button class="primary sm" type="button" id="askOk">OK</button></div>
+</dialog>
+
+<dialog id="docsDialog" class="docs-dialog glass-strong">
+  <div class="gallery-head">
+    <svg class="mark" viewBox="0 0 44 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="7" fill="var(--yellow)"/>
+      <rect x="19" y="1.5" width="13" height="13" rx="2" fill="var(--blue)"/>
+      <path d="M40 1.5 L43.5 14.5 L36.5 14.5 Z" fill="var(--red)"/>
+    </svg>
+    <h3 data-i18n="docsTitle">Docs</h3><span class="spacer"></span><button class="btn sm neo" type="button" id="docsClose" data-i18n="close">Close</button>
+  </div>
+  <div class="docs-body">
+
+    <article data-lang-block="zh">
+      <h4>这是什么</h4>
+      <p>本地的 <b>Qwen-Image-2.1</b> 图像生成与编辑工作台：文生图、多图编辑、渲染队列与图库，全部通过你本机的 <b>ComfyUI</b> 渲染，不联网上传任何内容。</p>
+
+      <h4 class="blue">快速开始</h4>
+      <ul>
+        <li>⚙ 路径里填 ComfyUI 安装目录（如 <code>~/ComfyUI-Installs/ComfyUI</code>）或运行中的 http 地址——Studio 会自动无头启动它。</li>
+        <li>写提示词 → 选比例 → 点「生成」。模型第一次加载要几分钟，之后常驻缓存，出图很快。</li>
+        <li>导入图片：把图片拖进右侧参考图区，或点「从图库选择」。有参考图即进入「编辑」模式。</li>
+      </ul>
+
+      <h4 class="blue">操作提示</h4>
+      <ul>
+        <li><b>↻ 刷新</b>：确认后清空全部参考图与提示词，参数恢复默认。成片不受影响。</li>
+        <li><b>右键菜单</b>：成片与图库中的图片，右键即可「用作参考图」「复用设置」「打开」「删除」。复用设置会把这张成片当时用的参考图一并恢复（文件还在时）。</li>
+        <li><b>单击选中，双击放大</b>：成片条里单击选图进预览，双击直接全屏看图。</li>
+        <li><b>图库</b>：分「输出」与「输入」。右下角显示 Output、Input 与储存目录，可「在访达打开」；输入页的图也能右键删除。</li>
+        <li><b>文件命名</b>：图库显示的名字就是 Output / Input 文件夹里的文件名。</li>
+        <li>提示词里输入 <code>@</code> 引用参考图，按顺序写成 <code>&lt;image1&gt;</code>、<code>&lt;image2&gt;</code>。</li>
+      </ul>
+
+      <h4 class="yellow">文件储存</h4>
+      <p>所有图片与数据都在用户目录下：</p>
+      <div class="dcode">~/Qwen Image Studio/
+├── Input/    导入的参考图
+├── Output/   生成的成片
+└── 储存数据（会话、缩略图、日志）</div>
+      <p class="dim">每张图片只存一份——参考图在 Input/，成片在 Output/，软件直接以这两个文件夹为存储。删除该目录即恢复出厂。服务器只监听 127.0.0.1，什么都不上传。删除是双向同步的：软件里删掉成片或参考图，Input/、Output/ 里的文件随之删除；反过来在访达里删掉文件，下次打开图库时对应条目也会自动清除。</p>
+
+      <h4 class="yellow">常见问题</h4>
+      <ul>
+        <li>「ComfyUI has no Qwen-Image model」：填的实例看不到模型——填安装目录让 Studio 自己启动。</li>
+        <li>首次渲染慢：加载约 15 GB 权重属正常，之后模型常驻缓存。</li>
+        <li>参数是否生效：看渲染日志的 <code>graph injected</code> 一行。</li>
+      </ul>
+    </article>
+
+    <article data-lang-block="en">
+      <h4>What this is</h4>
+      <p>A local workbench for <b>Qwen-Image-2.1</b>: text-to-image, multi-image editing, a render queue and a gallery — everything renders through your local <b>ComfyUI</b>, nothing is sent anywhere.</p>
+
+      <h4 class="blue">Quick start</h4>
+      <ul>
+        <li>Set the ComfyUI install directory (e.g. <code>~/ComfyUI-Installs/ComfyUI</code>) or a running http URL under ⚙ Paths — the studio starts it headless.</li>
+        <li>Write a prompt → pick a ratio → <b>Generate</b>. The first render loads the models (minutes); afterwards they stay cached.</li>
+        <li>Import images: drop them into the references area, or pick from the gallery. References switch you to Edit mode.</li>
+      </ul>
+
+      <h4 class="blue">Operating tips</h4>
+      <ul>
+        <li><b>↻ Reset</b> asks for confirmation; confirming clears every reference and the prompt and restores the defaults. Takes are untouched.</li>
+        <li><b>Right-click</b> a take or a gallery image for “Use as reference”, “Reuse settings”, “Open” and “Delete”. Reuse brings the references the take was made from back with it (while their files exist).</li>
+        <li><b>Single click selects, double click enlarges</b>: in the takes strip a click shows the take, a double click opens it full screen.</li>
+        <li><b>Gallery</b>: Output and Input tabs. The bottom-right corner shows the Output, Input and Storage folders, with “Open in Finder”; Input items can be deleted from their right-click menu.</li>
+        <li><b>Naming</b>: gallery names are the file names in the Output / Input folders.</li>
+        <li>Type <code>@</code> in the prompt to name a reference image, written as <code>&lt;image1&gt;</code>, <code>&lt;image2&gt;</code>…</li>
+      </ul>
+
+      <h4 class="yellow">Files</h4>
+      <p>Every image and all data live in your home folder:</p>
+      <div class="dcode">~/Qwen Image Studio/
+├── Input/    imported references
+├── Output/   finished takes
+└── studio data (sessions, thumbnails, logs)</div>
+      <p class="dim">Every image is stored exactly once — references in Input/, takes in Output/; the folders are the storage. Delete that folder for a factory reset. The server listens on 127.0.0.1 only — nothing leaves your machine. Deletion syncs both ways: removing a take or a reference in the studio removes its file from Output/ or Input/; removing the file in Finder removes the matching gallery item or reference entry the next time the gallery loads.</p>
+
+      <h4 class="yellow">Questions</h4>
+      <ul>
+        <li>“ComfyUI has no Qwen-Image model”: that instance can't see the weights — set the install directory instead.</li>
+        <li>First render is slow: loading ~15 GB of weights is normal; afterwards they stay cached.</li>
+        <li>Checking that a setting took effect: the <code>graph injected</code> line in the render log.</li>
+      </ul>
+    </article>
+
+  </div>
+</dialog>
+
+<dialog id="galleryDialog" class="gallery-dialog glass-strong">
+  <div class="gallery-head">
+    <svg class="mark" viewBox="0 0 44 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="7" fill="var(--yellow)"/>
+      <rect x="19" y="1.5" width="13" height="13" rx="2" fill="var(--blue)"/>
+      <path d="M40 1.5 L43.5 14.5 L36.5 14.5 Z" fill="var(--red)"/>
+    </svg>
+    <h3 id="galleryTitle">Gallery</h3>
+    <span class="tabs" role="tablist" id="galleryTabs">
+      <button type="button" role="tab" aria-selected="true" data-tab="output" data-i18n="galleryTabOutput">Output</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="input" data-i18n="galleryTabInput">Input</button>
+    </span>
+    <span class="spacer"></span><button class="btn sm neo" type="button" id="galleryClose" data-i18n="close">Close</button>
+  </div>
+  <div id="galleryMount" class="gallery-mount"></div>
+  <div class="gallery-foot" id="galleryFoot">
+    <div class="paths">
+      <div><span data-i18n="pathOutput">Generated · Output</span><code id="galleryOutPath">—</code></div>
+      <div><span data-i18n="pathInput">Imported · Input</span><code id="galleryInPath">—</code></div>
+      <div><span data-i18n="pathData">Storage</span><code id="galleryDataPath">—</code></div>
+    </div>
+    <button class="btn neo sm" type="button" id="galleryReveal" data-i18n="openFinder">Open in Finder</button>
+  </div>
+</dialog>
+
+<!-- Double-click any image to preview it nearly fullscreen; click anywhere to return -->
+<dialog id="lightbox" aria-label="Image preview">
+  <img id="lightboxImg" alt="">
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

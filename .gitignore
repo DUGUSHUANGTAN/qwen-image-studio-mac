@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 打包产物（由 build/build_app.sh 重新生成）
+dist/
+build/stage/
+build/uv/
+build/uv.dl/
+build/AppIcon.icns
+build/AppIcon.iconset/
+build/icon-preview.png
+
+# 本地运行数据与调试产物
+.cache/
+.studio-data/
+work/
+PROGRESS.md
+
+# macOS
+.DS_Store
